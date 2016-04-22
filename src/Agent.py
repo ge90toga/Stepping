@@ -52,6 +52,7 @@ class Tile:
 class Map:
     def __init__(self, dimension = 80):
         self.ground = dict()
+        self.dimension = dimension
         for i in range(-dimension, dimension + 1):
             for j in range(-dimension, dimension + 1):
                 self.ground[(i,j)] = Tile(i, j)
@@ -81,7 +82,15 @@ class Map:
         else:
             return None
 
+    def copy(self):
+        newMap = Map(self.dimension)
+        for tile in self.ground:
+            x, y = tile.pos()
+            type = tile.getType
+            newMap.addTile(x, y, type)
 
+    def findTile(self, type):
+        return [x.pos for x in self.ground if x.getType == type]
 
 class Agent:
     SIGHT = 5
@@ -114,8 +123,6 @@ class Agent:
         return tuple(zip(*map))
 
     def start(self):
-        # initMap = self.pipe.receive()
-        # print(initMap)
         initMap = [[' ', ' ', 'o', ' ', ' '],
                    [' ', ' ', ' ', ' ', ' '],
                    [' ', ' ', '^', ' ', ' '],
@@ -124,49 +131,82 @@ class Agent:
         turnedMap = self.turnMapToNorth(initMap)
         for i in range(self.SIGHT):
             for j in range(self.SIGHT):
-                # print(i - self.SIGHT//2, j - self.SIGHT//2, turnedMap[i][j])
                 self.map.addTile(i - self.SIGHT//2, j - self.SIGHT//2, turnedMap[i][j])
-        # self.traversal()
-        # while(True):
-        #     goalPath = self.findGoldPath()
-        #     nearestUnknow = self.findAnUnknown()
-        #     if goalPath:
-        #         self.goTo(goalPath)
-        #         print('Victory')
-        #         break
-        #     elif nearestUnknow:
-        #         self.goTo(nearestUnknow)
-        #     else:
-        #         print('No Path Found')
-        #         break
-        # print(b)
-
-        borderTiles = self.findBorderTiles()
-        consecutivePathes = self.findConsecutivePathes(borderTiles)
-        # print(consecutivePathes)
-        # print(b)
-        print([(x.pos(), x.getType()) for y in consecutivePathes for x in y])
-
-        # for t in borderTiles:
-        #     self.gotoWithCare(t)
-
-    # def traversal(self):
-    #     borderMap = self.getBorderMap(self)
-    #     originTile = self.map.getTile(self.x, self.y)
 
 
-    # def findAnUnknown(self):
-    #     originTile = self.map.getTile(self.x, self.y)
-    #     stack = [originTile]
-    #     wentTile = [originTile]
-    #     while(stack):
-    #         if originTile.getNorth() not in wentTile:
+        while(True):
+            solutionPath = self.findGold(axe, key, stone)
+            if solutionPath:
+                self.goAlong(solutionPath)
+            else:
+                hasExpand = self.Expand()
+                if hasExpand:
+                    self.expand()
+                else:
+                    print('No solution')
+                    break
+
+    # def findGold(self, axe, key, stone):
+    #     targetPositions = self.map.findTile('g')
+    #
+    #
+    #     path11 = self.findSolution()
+    #     if self.stoneRequirement(path11) < self.hasStone:
+    #         self.goAlong()
+    #     path10 = self.findSolution()
+    #
+    #     path01 = self.findSolution()
+    #
+    #     path00 = self.findSolution()
+
+
+    # def findSolution(self, target, axe, key):
+    #     path = self.Dijkstra(target, axe, key)
+    #     reqStack = self.getReqStack(path)
+    #     wentResource = []
+    #     priorPath = []
+    #     while(reqStack):
+    #         top = reqStack.pop()
+    #         targets = self.map.findTile(top.getType)
+    #         minreqPath = None
+    #         for target in targets:
+    #             if target in wentResource:
+    #                 continue
+    #             tmpPath = self.Dijkstra(target, axe, key)
+    #             stoneReq = self.stoneRequirement(tmpPath)
+    #             if minreqPath == None or stoneReq < self.stoneRequirement(minreqPath):
+    #                 minreqPath = tmpPath
+    #                 wentResource.append(target)
+    #
+    #         if minreqPath:
+    #             priorPath += minreqPath[1:]
+    #         else:
+    #             break
+    #
+    #     if path[-1].getPos() == self.Pos:
+    #         return path
+    #     else:
+    #         return None
+
+    def pathFinder(self, targetList):
+        for i in range(len(targetList)):
+            newPath = pathFinder(targetList[:i]+targetList[i+1:])
 
 
 
-    def DFS(self, x, y, stack):
+
+    def Dijkstra(self, map, targetPos, axe, key):
         pass
 
+
+
+
+
+    def expand(self):
+        borderTiles = self.findBorderTiles()
+        borderPathes = self.counterclockwiseRotate(borderTiles)
+        for path in borderPathes:
+            self.goAlong(path)
 
     def findBorderTiles(self):
         x, y = self.x, self.y
@@ -222,8 +262,8 @@ class Agent:
     #             south = tail.getSouth()
     #             west = tail.getWest()
 
-    # def goAlong(self, path):
-    #     self.goWithCare(path[0])
+    def goAlong(self, path):
+        pass
 
 
 class Pipe:
