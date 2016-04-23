@@ -1,7 +1,8 @@
 import socket, threading
 from functools import reduce
+import time
 
-
+SIGHT = 5
 
 class Tile:
     def __init__(self, x, y, type):
@@ -53,6 +54,10 @@ class Tile:
 class Map:
     def __init__(self):
         self.ground = dict()
+        self.x = 0
+        self.y = 0
+        self.facing = 0
+        self.lock = False
 
     def addTile(self, x, y, type):
         if (x, y) not in self.ground:
@@ -112,70 +117,58 @@ class Map:
                     ret[-1].append('?')
         return reduce(lambda x, y:'{}\n{}'.format(x, y), [''.join(x) for x in ret])
 
-class Agent:
-    SIGHT = 5
-    def __init__(self, port):
-        self.x = 0
-        self.y = 0
-        self.facing = 2
-        self.map = Map()
-        # self.pipe = Pipe(port)
-        self.hasStone = 0
-        self.hasAxe = False
-        self.hasKey = False
+    def myPos(self):
+        return (self.x, self.y)
 
-    def turnMapToNorth(self, map):
-        tmpmap = map
+    def insertScope(self, scope):
+        turnedMap = self.turnMapToNorth(scope)
+        x, y = self.myPos()
+        for i in range(SIGHT):
+            for j in range(SIGHT):
+                self.addTile(x + i - SIGHT//2, y + j - SIGHT//2, turnedMap[i][j])
+
+    def turnMapToNorth(self, scope):
         facing = self.facing
-        if facing == 'W':
-            tmpmap = self.counterclockwiseRotate(tmpmap)
-            facing = 'S'
-        if facing == 'S':
-            tmpmap = self.counterclockwiseRotate(tmpmap)
-            facing = 'E'
-        if facing == 'E':
-            tmpmap = self.counterclockwiseRotate(tmpmap)
-            facing = 'N'
-        if facing == 'N':
-            return tmpmap
+        for i in range(facing):
+            scope = self.counterclockwiseRotate(scope)
+        return scope
 
     def counterclockwiseRotate(self, map):
         return tuple(zip(*map))
 
+    def setPos(self, x, y):
+        self.x = x
+        self.y = y
+
+    def setFacing(self, facing):
+        self.facing = facing
+
+    def getFacing(self):
+        return self.facing
+
+class Agent:
+    SIGHT = 5
+    def __init__(self, port):
+        self.map = Map()
+        self.pipe = Pipe(port, self.map)
+        self.hasStone = 0
+        self.hasAxe = False
+        self.hasKey = False
+
+
     def start(self):
-        initMap = [['~', '~', 'k', '~', 'g'],
-                   [' ', '~', '~', '~', '-'],
-                   [' ', 'o', '^', 'T', ' '],
-                   [' ', ' ', ' ', '*', '*'],
-                   [' ', ' ', ' ', '-', 'a']]
-        # turnedMap = self.turnMapToNorth(initMap)
-        turnedMap = initMap
-        for i in range(self.SIGHT):
-            for j in range(self.SIGHT):
-                self.map.addTile(i - self.SIGHT//2, j - self.SIGHT//2, turnedMap[i][j])
-
-
-        print(self.map.printMap())
-
-        # result = self.findGold([((self.x,self.y), self.hasKey, self.hasAxe, 0)], self.map)
-        # result = self.findWay((self.x,self.y), (2, -2))
-        # print(result)
-        # for x in result:
-        #     print(x[0], self.map.getTile(*x[0]).getType())
-
-        self.expand()
-        # while(True):
-        #     solutionPath = self.findGold(((self.x,self.yr), False, False, 0), self.map)
-        #     if solutionPath:
-        #         self.goAlong(solutionPath)
-        #     else:
-        #         hasExpand = self.Expand()
-        #         if hasExpand:
-        #             self.expand()
-        #         else:
-        #             print('No solution')
-        #             break
-
+        time.sleep(2)
+        while(True):
+            solutionPath = self.findGold((self.map.myPos(), False, False, 0), self.map)
+            if solutionPath:
+                self.goAlong(solutionPath)
+            else:
+                hasExpand = self.expand()
+                if hasExpand:
+                    self.expand()
+                else:
+                    print('No solution')
+                    break
 
     def findGold(self, stack, map):
         if stack:
@@ -244,9 +237,10 @@ class Agent:
         borderPathes = self.findConsecutivePathes(borderTiles)
         for path in borderPathes:
             self.goAlong([x.pos() for x in path])
+        return len(borderPathes) != 0
 
     def findBorderTiles(self):
-        x, y = self.x, self.y
+        x, y = self.map.myPos()
         walkable = [' ', 'O', 'k', 'a', 'o']
         walked = [self.map.getTile(x, y)]
         stack = [self.map.getTile(x, y)]
@@ -307,27 +301,29 @@ class Agent:
 
     def goAlong(self, path):
         head = path[0]
-        if head != (self.x, self.y):
-            leadingPath = self.findWay((self.x, self.y), head)
+        if head != (self.map.myPos()):
+            leadingPath = self.findWay(self.map.myPos(), head)
             if leadingPath:
                 path = leadingPath[:-1]+path
 
-        command = []
         for tile in path[1:]:
-            self.goto(tile)
+            self.step(tile)
 
-    def goto(self, pos):
+    def step(self, pos):
         command = ''
-        direction = {'N':0, 'E':1, 'S':2, 'W':3}
-        x1, y1 = self.x, self.y
+        x1, y1 = self.map.myPos()
         x2, y2 = pos
-        myDirection = direction[self.facing]
+        myDirection = self.map.getFacing()
+        # print(myDirection)
         if abs(x2-x1)+abs(y2-y1) != 1:
             raise Exception
         targetd = {(0,-1):0, (1,0):1, (0,1):2, (-1,0):3}
         targetDirection = targetd[(x2-x1, y2-y1)]
-
-        turn = (targetDirection - myDirection)%(4*(-myDirection/myDirection))
+        if myDirection >= 0:
+            sign = 1
+        else:
+            sign = -1
+        turn = (targetDirection - myDirection)%(4*sign)
         if turn != 0:
             if turn < 0:
                 leftright = 'l'
@@ -342,19 +338,20 @@ class Agent:
             command += 'c'
         elif targetType == '-':
             command += 'u'
+        elif targetType == '~':
+            self.hasStone -= 1
         command += 'f'
+
         self.pipe.send(command)
-
-
-
-
+        self.map.setPos(x2, y2)
+        self.map.setFacing(targetDirection)
+        print(command)
 
 class Pipe:
-    def __init__(self, port):
-        self.data = []
-        self.newDataFlag = threading.Event()
+    def __init__(self, port, map):
         self.port = port
         self.conn = None
+        self.map = map
         t = threading.Thread(target=self.connection)
         t.setDaemon(True)
         t.start()
@@ -369,44 +366,15 @@ class Pipe:
                 nodelist = list(d.decode('utf-8'))
                 tmpdata = nodelist[:12] + ['^'] + nodelist[12:]
                 grid = [tmpdata[5*i:5*i+5] for i in range(5)]
-                self.data = grid
-                self.newDataFlag.set()
+                self.map.insertScope(grid)
+                print(self.map.printMap())
                 d = b''
-
-    def receive(self):
-        if self.newDataFlag.wait(1):
-            self.newDataFlag.clear()
-            return self.data
-        return None
 
     def send(self, message):
         m = str.encode(message)
         self.conn.send(m)
 
-    def messenger(self, message):
-        self.send(message)
-        if self.newDataFlag.wait(1):
-            return self.receive()
-
 
 if __name__ == '__main__':
-    # s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    # s.connect(('127.0.0.1', 31415))
-    #
-    # buffer = []
-    # data = b''
-    # while True:
-    #     d = s.recv(1024)
-    #     buffer.append(d)
-    #     data = b''.join(buffer)
-    #     if len(data) == 24:
-    #         print(list(data.decode('utf-8')))
-    #         print('{}{}{}{}{}\n{}{}{}{}{}\n{}{}^{}{}\n{}{}{}{}{}\n{}{}{}{}{}\n'.format(*list(data.decode('utf-8'))))
-
-    # p = Pipe(31415)
     a = Agent(31415)
     a.start()
-    # print(p.receive())
-    # order = ['f', 'f', 'r', 'r', 'f', 'f', 'r', 'f', 'f', 'f', 'f', 'l', 'f', 'f','r', 'f', 'f']
-    # for o in order:
-    #     p.messenger(o)
