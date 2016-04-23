@@ -55,24 +55,32 @@ class Map:
         self.ground = dict()
 
     def addTile(self, x, y, type):
-        newTile = Tile(x, y, type)
-        self.ground[(x, y)] = newTile
-        if (x,y-1) in self.ground:
-            newTile.setNorth(self.ground[(x,y-1)])
-            self.ground[(x,y-1)].setSouth(newTile)
-        if (x+1,y) in self.ground:
-            newTile.setEast(self.ground[(x+1,y)])
-            self.ground[(x+1,y)].setWest(newTile)
-        if (x-1,y) in self.ground:
-            newTile.setWest(self.ground[(x-1,y)])
-            self.ground[(x-1,y)].setEast(newTile)
-        if (x,y+1) in self.ground:
-            newTile.setSouth(self.ground[(x,y+1)])
-            self.ground[(x,y+1)].setNorth(newTile)
+        if (x, y) not in self.ground:
+            tile = Tile(x, y, type)
+        else:
+            tile = self.ground[(x, y)]
+            tile.setType(type)
+        self.ground[(x, y)] = tile
+
+        if (x,y-1) not in self.ground:
+            self.ground[(x,y-1)] = Tile(x, y-1, 'N')
+        tile.setNorth(self.ground[(x,y-1)])
+
+        if (x+1,y) not in self.ground:
+            self.ground[(x+1,y)] = Tile(x+1,y, 'N')
+        tile.setEast(self.ground[(x+1,y)])
+
+        if (x-1,y) not in self.ground:
+            self.ground[(x-1,y)] = Tile(x-1,y, 'N')
+        tile.setWest(self.ground[(x-1,y)])
+
+        if (x,y+1) not in self.ground:
+            self.ground[(x,y+1)] = Tile(x,y+1, 'N')
+        tile.setSouth(self.ground[(x,y+1)])
 
         if type == '^':
-            newTile.walked()
-            newTile.setType(' ')
+            tile.walked()
+            tile.setType(' ')
 
     def getTile(self, x, y):
         if (x, y) in self.ground:
@@ -101,7 +109,7 @@ class Map:
                 if (i, j) in self.ground:
                     ret[-1].append(self.ground[(i,j)].getType())
                 else:
-                    ret[-1].append('N')
+                    ret[-1].append('?')
         return reduce(lambda x, y:'{}\n{}'.format(x, y), [''.join(x) for x in ret])
 
 class Agent:
@@ -109,12 +117,12 @@ class Agent:
     def __init__(self, port):
         self.x = 0
         self.y = 0
-        self.facing = 'S'
+        self.facing = 2
         self.map = Map()
         # self.pipe = Pipe(port)
         self.hasStone = 0
-        self.hasAxe = 0
-        self.hasKey = 0
+        self.hasAxe = False
+        self.hasKey = False
 
     def turnMapToNorth(self, map):
         tmpmap = map
@@ -140,7 +148,8 @@ class Agent:
                    [' ', 'o', '^', 'T', ' '],
                    [' ', ' ', ' ', '*', '*'],
                    [' ', ' ', ' ', '-', 'a']]
-        turnedMap = self.turnMapToNorth(initMap)
+        # turnedMap = self.turnMapToNorth(initMap)
+        turnedMap = initMap
         for i in range(self.SIGHT):
             for j in range(self.SIGHT):
                 self.map.addTile(i - self.SIGHT//2, j - self.SIGHT//2, turnedMap[i][j])
@@ -148,12 +157,13 @@ class Agent:
 
         print(self.map.printMap())
 
-        result = self.findGold([((self.x,self.y), False, False, 0)], self.map)
+        # result = self.findGold([((self.x,self.y), self.hasKey, self.hasAxe, 0)], self.map)
+        # result = self.findWay((self.x,self.y), (2, -2))
+        # print(result)
+        # for x in result:
+        #     print(x[0], self.map.getTile(*x[0]).getType())
 
-        for x in result:
-            print(x[0], self.map.getTile(*x[0]).getType())
-
-
+        self.expand()
         # while(True):
         #     solutionPath = self.findGold(((self.x,self.yr), False, False, 0), self.map)
         #     if solutionPath:
@@ -231,13 +241,13 @@ class Agent:
 
     def expand(self):
         borderTiles = self.findBorderTiles()
-        borderPathes = self.counterclockwiseRotate(borderTiles)
+        borderPathes = self.findConsecutivePathes(borderTiles)
         for path in borderPathes:
-            self.goAlong(path)
+            self.goAlong([x.pos() for x in path])
 
     def findBorderTiles(self):
         x, y = self.x, self.y
-        walkable = [' ', 'O', 'k', 'a', '^']
+        walkable = [' ', 'O', 'k', 'a', 'o']
         walked = [self.map.getTile(x, y)]
         stack = [self.map.getTile(x, y)]
         borderTile = []
@@ -274,23 +284,69 @@ class Agent:
             pathes[-1].append(tiles[i])
         return pathes
 
-    # def gotoWithCare(self, tile):
-    #     walkable = [' ', 'O', 'k', 'a', '^']
-    #     pathes = [[tile]]
-    #     walked = [tile]
-    #     while(True):
-    #         newPaht = []
-    #         for path in pathes:
-    #             tail = path[-1]
-    #             if tail in walked:
-    #
-    #             north = tail.getNorth()
-    #             east = tail.getEast()
-    #             south = tail.getSouth()
-    #             west = tail.getWest()
+    def findWay(self, originpos, targetpos):
+        walkable = [' ', 'O', 'k', 'a', 'o']
+        queue = [[originpos]]
+        walked = []
+        while(queue):
+            path = queue[0]
+            queue = queue[1:]
+            tile = self.map.getTile(*path[-1])
+            if tile.getType() not in walkable:
+                continue
+            elif tile.pos() in walked:
+                continue
+            elif tile.pos() == targetpos:
+                return path
+            walked.append(tile.pos())
+            queue.append(path+[tile.getNorth().pos()])
+            queue.append(path+[tile.getEast().pos()])
+            queue.append(path+[tile.getSouth().pos()])
+            queue.append(path+[tile.getWest().pos()])
+        return []
 
     def goAlong(self, path):
-        pass
+        head = path[0]
+        if head != (self.x, self.y):
+            leadingPath = self.findWay((self.x, self.y), head)
+            if leadingPath:
+                path = leadingPath[:-1]+path
+
+        command = []
+        for tile in path[1:]:
+            self.goto(tile)
+
+    def goto(self, pos):
+        command = ''
+        direction = {'N':0, 'E':1, 'S':2, 'W':3}
+        x1, y1 = self.x, self.y
+        x2, y2 = pos
+        myDirection = direction[self.facing]
+        if abs(x2-x1)+abs(y2-y1) != 1:
+            raise Exception
+        targetd = {(0,-1):0, (1,0):1, (0,1):2, (-1,0):3}
+        targetDirection = targetd[(x2-x1, y2-y1)]
+
+        turn = (targetDirection - myDirection)%(4*(-myDirection/myDirection))
+        if turn != 0:
+            if turn < 0:
+                leftright = 'l'
+                turn = -turn
+            else:
+                leftright = 'r'
+            command += leftright * turn
+            self.facing = targetDirection
+
+        targetType = self.map.getTile(x2, y2).getType()
+        if targetType == 'T':
+            command += 'c'
+        elif targetType == '-':
+            command += 'u'
+        command += 'f'
+        self.pipe.send(command)
+
+
+
 
 
 class Pipe:
