@@ -32,6 +32,9 @@ class Tile:
     def getType(self):
         return self.__type
 
+    def beenHere(self):
+        return self.__beenHere
+
     def walked(self):
         self.__beenHere = True
 
@@ -49,6 +52,7 @@ class Tile:
 
     def setSouth(self, tile):
         self.__south = tile
+
 
 class Map:
     def __init__(self):
@@ -104,14 +108,15 @@ class Map:
         return [x.pos for x in self.ground if x.getType == type]
 
     def printMap(self):
-        ret = []
         xlist, ylist = zip(*[x for x in self.ground])
         xmin,xmax,ymin,ymax = min(xlist), max(xlist), min(ylist), max(ylist)
-        for i in range(xmin, xmax+1):
-            ret.append([])
-            for j in range(ymin, ymax+1):
-                if (i, j) in self.ground:
-                    ret[-1].append(self.ground[(i,j)].getType())
+
+        ret = [[str(x%10) for x in range(xmin-1, xmax+1)]]
+        for i in range(ymin, ymax+1):
+            ret.append([str(i%10)])
+            for j in range(xmin, xmax+1):
+                if (j, i) in self.ground:
+                    ret[-1].append(self.ground[(j,i)].getType())
                 else:
                     ret[-1].append('?')
         return reduce(lambda x, y:'{}\n{}'.format(x, y), [''.join(x) for x in ret])
@@ -119,25 +124,28 @@ class Map:
     def myPos(self):
         return (self.x, self.y)
 
+    #TBD
     def insertScope(self, scope):
         turnedMap = self.turnMapToNorth(scope)
-        print('-----------------')
-        [print('|'+''.join(line)+'|') for line in turnedMap]
-        print('-----------------')
         x, y = self.myPos()
         for i in range(SIGHT):
             for j in range(SIGHT):
-                self.addTile(x + i - SIGHT//2, y + j - SIGHT//2, turnedMap[i][j])
+                self.addTile(x + j - SIGHT//2, y + i - SIGHT//2, turnedMap[i][j])
 
     def turnMapToNorth(self, scope):
         facing = self.facing
-        print(facing)
+        newscope = scope
         for i in range(facing):
-            scope = self.counterclockwiseRotate(scope)
-        return scope
+            newscope = self.counterclockwiseRotate(newscope)
+        return newscope
 
+    #TBD
     def counterclockwiseRotate(self, map):
-        return tuple(zip(*map))[::-1]
+        ret = map
+        for i in range(3):
+            ret = tuple(zip(*ret))[::-1]
+        return ret
+        # return tuple(zip(*map))[::-1]
 
     def setPos(self, x, y):
         self.x = x
@@ -161,12 +169,14 @@ class Agent:
 
     def start(self):
         while(True):
+            print('looking for solution...')
             solutionPath = self.findGold((self.map.myPos(), False, False, 0), self.map)
             if solutionPath:
                 self.goAlong(solutionPath)
                 print('Victory')
                 break
             else:
+                print('no solution, expand')
                 hasExpand = self.expand()
                 if hasExpand:
                     self.expand()
@@ -258,7 +268,7 @@ class Agent:
             west = tile.getWest()
             south = tile.getSouth()
             east = tile.getEast()
-            if any([x.getType() not in walkable for x in [north, west, south, east]]):
+            if any([x.getType() not in walkable for x in [north, west, south, east]]) and not tile.beenHere():
                 borderTile.append(tile)
 
             if north not in walked:
@@ -305,15 +315,13 @@ class Agent:
 
     def goAlong(self, path):
         head = path[0]
-        # print(path)
         if head != (self.map.myPos()):
             leadingPath = self.findWay(self.map.myPos(), head)
-            print(leadingPath)
             if leadingPath:
                 path = leadingPath[:-1] + path
-        # print(self.map.myPos(), path)
+        print('Go along path:')
+        print(path)
         for tile in path[1:]:
-            print(tile)
             self.step(tile)
 
     def step(self, pos):
@@ -322,7 +330,6 @@ class Agent:
         x2, y2 = pos
         myDirection = self.map.getFacing()
         if abs(x2-x1)+abs(y2-y1) > 1:
-            print(x2, x1, y2, y1)
             raise Exception
         elif abs(x2-x1)+abs(y2-y1) == 0:
             return
@@ -340,7 +347,6 @@ class Agent:
             else:
                 leftright = 'r'
             command += leftright * turn
-            self.map.setFacing(targetDirection)
 
         targetType = self.map.getTile(x2, y2).getType()
         if targetType == 'T':
@@ -350,11 +356,16 @@ class Agent:
         elif targetType == '~':
             self.hasStone -= 1
         command += 'f'
-
-        self.map.setPos(x2, y2)
         for c in command:
+            if c == 'r':
+                self.map.setFacing((myDirection+1)%4)
+            elif c == 'l':
+                self.map.setFacing((myDirection-1)%4)
+            elif c == 'f':
+                self.map.setPos(x2, y2)
+                self.map.getTile(x2, y2).walked()
+            print('command: '+c)
             self.pipe.send(c)
-            # print(c)
 
 class Pipe:
     def __init__(self, port, map):
@@ -383,23 +394,23 @@ class Pipe:
                 tmpdata = nodelist[:12] + ['^'] + nodelist[12:]
                 grid = [tmpdata[5*i:5*i+5] for i in range(5)]
                 self.map.insertScope(grid)
-                # print(self.map.printMap())
+                print(self.map.printMap())
                 break
 
 if __name__ == '__main__':
-    # a = Agent(31415)
-    # a.start()
-    m = Map()
-    p = Pipe(31415, m)
-    command = 'ffrrffrffffflffrff'
-    for i in command:
-        if i == 'r':
-            facing = m.getFacing()
-            m.setFacing((facing+1))
-        elif i == 'l':
-            facing = m.getFacing()
-            m.setFacing((facing-1))
-        p.send(i)
+    a = Agent(31415)
+    a.start()
+    # m = Map()
+    # p = Pipe(31415, m)
+    # command = 'ffrrffrffffflffrff'
+    # for i in command:
+    #     if i == 'r':
+    #         facing = m.getFacing()
+    #         m.setFacing((facing+1))
+    #     elif i == 'l':
+    #         facing = m.getFacing()
+    #         m.setFacing((facing-1))
+    #     p.send(i)
 
 
 
