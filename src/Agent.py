@@ -1,9 +1,10 @@
 import socket, threading
+from functools import reduce
 
 
 
 class Tile:
-    def __init__(self, x, y, type = 'N'):
+    def __init__(self, x, y, type):
         self.__x = x
         self.__y = y
         self.__north = None
@@ -11,7 +12,7 @@ class Tile:
         self.__west  = None
         self.__south = None
         self.__type  = type
-        self.__walked = False
+        self.__beenHere = False
 
     def pos(self):
         return (self.__x, self.__y)
@@ -32,7 +33,7 @@ class Tile:
         return self.__type
 
     def walked(self):
-        self.walked = True
+        self.__beenHere = True
 
     def setType(self, type):
         self.__type = type
@@ -50,31 +51,28 @@ class Tile:
         self.__south = tile
 
 class Map:
-    def __init__(self, dimension = 80):
+    def __init__(self):
         self.ground = dict()
-        self.dimension = dimension
-        for i in range(-dimension, dimension + 1):
-            for j in range(-dimension, dimension + 1):
-                self.ground[(i,j)] = Tile(i, j)
-
-        for i in range(-dimension, dimension + 1):
-            for j in range(-dimension, dimension + 1):
-                if (i,j-1) in self.ground:
-                    self.ground[(i,j)].setNorth(self.ground[(i,j-1)])
-                if (i+1,j) in self.ground:
-                    self.ground[(i,j)].setEast(self.ground[(i+1,j)])
-                if (i-1,j) in self.ground:
-                    self.ground[(i,j)].setWest(self.ground[(i-1,j)])
-                if (i,j+1) in self.ground:
-                    self.ground[(i,j)].setSouth(self.ground[(i,j+1)])
 
     def addTile(self, x, y, type):
-        if type != '^':
-            self.ground[(x, y)].setType(type)
-        else:
-            self.ground[(x, y)].walked()
-            if self.ground[(x, y)].getType() == 'N':
-                self.ground[(x, y)].setType(' ')
+        newTile = Tile(x, y, type)
+        self.ground[(x, y)] = newTile
+        if (x,y-1) in self.ground:
+            newTile.setNorth(self.ground[(x,y-1)])
+            self.ground[(x,y-1)].setSouth(newTile)
+        if (x+1,y) in self.ground:
+            newTile.setEast(self.ground[(x+1,y)])
+            self.ground[(x+1,y)].setWest(newTile)
+        if (x-1,y) in self.ground:
+            newTile.setWest(self.ground[(x-1,y)])
+            self.ground[(x-1,y)].setEast(newTile)
+        if (x,y+1) in self.ground:
+            newTile.setSouth(self.ground[(x,y+1)])
+            self.ground[(x,y+1)].setNorth(newTile)
+
+        if type == '^':
+            newTile.walked()
+            newTile.setType(' ')
 
     def getTile(self, x, y):
         if (x, y) in self.ground:
@@ -83,14 +81,28 @@ class Map:
             return None
 
     def copy(self):
-        newMap = Map(self.dimension)
+        newMap = Map()
         for tile in self.ground:
-            x, y = tile.pos()
-            type = tile.getType
+            x, y = tile
+            type = self.ground[tile].getType()
             newMap.addTile(x, y, type)
+        return newMap
 
     def findTile(self, type):
         return [x.pos for x in self.ground if x.getType == type]
+
+    def printMap(self):
+        ret = []
+        xlist, ylist = zip(*[x for x in self.ground])
+        xmin,xmax,ymin,ymax = min(xlist), max(xlist), min(ylist), max(ylist)
+        for i in range(xmin, xmax+1):
+            ret.append([])
+            for j in range(ymin, ymax+1):
+                if (i, j) in self.ground:
+                    ret[-1].append(self.ground[(i,j)].getType())
+                else:
+                    ret[-1].append('N')
+        return reduce(lambda x, y:'{}\n{}'.format(x, y), [''.join(x) for x in ret])
 
 class Agent:
     SIGHT = 5
@@ -123,84 +135,99 @@ class Agent:
         return tuple(zip(*map))
 
     def start(self):
-        initMap = [[' ', ' ', 'o', ' ', ' '],
-                   [' ', ' ', ' ', ' ', ' '],
-                   [' ', ' ', '^', ' ', ' '],
-                   [' ', ' ', ' ', ' ', ' '],
-                   [' ', ' ', ' ', ' ', ' ']]
+        initMap = [['~', '~', 'k', '~', 'g'],
+                   [' ', '~', '~', '~', '-'],
+                   [' ', 'o', '^', 'T', ' '],
+                   [' ', ' ', ' ', '*', '*'],
+                   [' ', ' ', ' ', '-', 'a']]
         turnedMap = self.turnMapToNorth(initMap)
         for i in range(self.SIGHT):
             for j in range(self.SIGHT):
                 self.map.addTile(i - self.SIGHT//2, j - self.SIGHT//2, turnedMap[i][j])
 
 
-        while(True):
-            solutionPath = self.findGold(axe, key, stone)
-            if solutionPath:
-                self.goAlong(solutionPath)
-            else:
-                hasExpand = self.Expand()
-                if hasExpand:
-                    self.expand()
-                else:
-                    print('No solution')
-                    break
+        print(self.map.printMap())
 
-    # def findGold(self, axe, key, stone):
-    #     targetPositions = self.map.findTile('g')
-    #
-    #
-    #     path11 = self.findSolution()
-    #     if self.stoneRequirement(path11) < self.hasStone:
-    #         self.goAlong()
-    #     path10 = self.findSolution()
-    #
-    #     path01 = self.findSolution()
-    #
-    #     path00 = self.findSolution()
+        result = self.findGold([((self.x,self.y), False, False, 0)], self.map)
+
+        for x in result:
+            print(x[0], self.map.getTile(*x[0]).getType())
 
 
-    # def findSolution(self, target, axe, key):
-    #     path = self.Dijkstra(target, axe, key)
-    #     reqStack = self.getReqStack(path)
-    #     wentResource = []
-    #     priorPath = []
-    #     while(reqStack):
-    #         top = reqStack.pop()
-    #         targets = self.map.findTile(top.getType)
-    #         minreqPath = None
-    #         for target in targets:
-    #             if target in wentResource:
-    #                 continue
-    #             tmpPath = self.Dijkstra(target, axe, key)
-    #             stoneReq = self.stoneRequirement(tmpPath)
-    #             if minreqPath == None or stoneReq < self.stoneRequirement(minreqPath):
-    #                 minreqPath = tmpPath
-    #                 wentResource.append(target)
-    #
-    #         if minreqPath:
-    #             priorPath += minreqPath[1:]
-    #         else:
-    #             break
-    #
-    #     if path[-1].getPos() == self.Pos:
-    #         return path
-    #     else:
-    #         return None
-
-    def pathFinder(self, targetList):
-        for i in range(len(targetList)):
-            newPath = pathFinder(targetList[:i]+targetList[i+1:])
+        # while(True):
+        #     solutionPath = self.findGold(((self.x,self.yr), False, False, 0), self.map)
+        #     if solutionPath:
+        #         self.goAlong(solutionPath)
+        #     else:
+        #         hasExpand = self.Expand()
+        #         if hasExpand:
+        #             self.expand()
+        #         else:
+        #             print('No solution')
+        #             break
 
 
+    def findGold(self, stack, map):
+        if stack:
+            if stack[-1] in stack[:-1]:
+                return []
 
+            tilepos, key, axe, stone = stack[-1]
+            x, y = tilepos
 
-    def Dijkstra(self, map, targetPos, axe, key):
-        pass
+            if tilepos not in self.map.ground:
+                return []
 
+            tile = map.getTile(*tilepos)
 
+            if tile.getType() in ['*', 'N']:
+                return []
+            if tile.getType() == 'g':
+                return stack
+            if tile.getType() == 'T' and not axe:
+                return []
+            if tile.getType() == '-' and not key:
+                return []
+            if tile.getType() == '~' and stone == 0:
+                return []
 
+            #Performance can be imporved by lazy copying map. TBD
+            myMap = map.copy()
+            tile = myMap.getTile(*tilepos)
 
+            if tile.getType() == 'k':
+                key = True
+                tile.setType(' ')
+            if tile.getType() == 'o':
+                stone += 1
+                tile.setType(' ')
+            if tile.getType() == 'a':
+                axe = True
+                tile.setType(' ')
+            if tile.getType() == '~':
+                stone -= 1
+                tile.setType('O')
+            if tile.getType() == '-':
+                tile.setType(' ')
+            if tile.getType() == 'T':
+                tile.setType(' ')
+
+            nPath = self.findGold(stack+[((x, y-1), key, axe, stone)], myMap)
+            if nPath:
+                return nPath
+            ePath = self.findGold(stack+[((x+1, y), key, axe, stone)], myMap)
+            if ePath:
+                return ePath
+
+            sPath = self.findGold(stack+[((x, y+1), key, axe, stone)], myMap)
+            if sPath:
+                return sPath
+
+            wPath = self.findGold(stack+[((x-1, y), key, axe, stone)], myMap)
+            if wPath:
+                return wPath
+
+        return []
 
     def expand(self):
         borderTiles = self.findBorderTiles()
