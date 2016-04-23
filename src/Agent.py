@@ -53,7 +53,6 @@ class Tile:
     def setSouth(self, tile):
         self.__south = tile
 
-
 class Map:
     def __init__(self):
         self.ground = dict()
@@ -116,7 +115,11 @@ class Map:
             ret.append([str(i%10)])
             for j in range(xmin, xmax+1):
                 if (j, i) in self.ground:
-                    ret[-1].append(self.ground[(j,i)].getType())
+                    if self.myPos() == (j, i):
+                        direction = {0:'^', 1:'>', 2:'v', 3:'<'}
+                        ret[-1].append(direction[self.getFacing()])
+                    else:
+                        ret[-1].append(self.ground[(j,i)].getType())
                 else:
                     ret[-1].append('?')
         return reduce(lambda x, y:'{}\n{}'.format(x, y), [''.join(x) for x in ret])
@@ -124,7 +127,6 @@ class Map:
     def myPos(self):
         return (self.x, self.y)
 
-    #TBD
     def insertScope(self, scope):
         turnedMap = self.turnMapToNorth(scope)
         x, y = self.myPos()
@@ -152,7 +154,7 @@ class Map:
         self.y = y
 
     def setFacing(self, facing):
-        self.facing = facing
+        self.facing = facing%4
 
     def getFacing(self):
         return self.facing
@@ -170,9 +172,9 @@ class Agent:
     def start(self):
         while(True):
             print('looking for solution...')
-            solutionPath = self.findGold((self.map.myPos(), False, False, 0), self.map)
+            solutionPath = self.findGold([(self.map.myPos(), self.hasKey, self.hasAxe, self.hasStone)], self.map, set())
             if solutionPath:
-                self.goAlong(solutionPath)
+                self.goAlong([x[0] for x in solutionPath])
                 print('Victory')
                 break
             else:
@@ -184,11 +186,11 @@ class Agent:
                     print('No solution')
                     break
 
-    def findGold(self, stack, map):
+    def findGold(self, stack, map, went):
         if stack:
-            if stack[-1] in stack[:-1]:
+            if stack[-1] in went:
                 return []
-
+            went.add(stack[-1])
             tilepos, key, axe, stone = stack[-1]
             x, y = tilepos
 
@@ -197,7 +199,7 @@ class Agent:
 
             tile = map.getTile(*tilepos)
 
-            if tile.getType() in ['*', 'N']:
+            if tile.getType() in ['*', 'N', '.']:
                 return []
             if tile.getType() == 'g':
                 return stack
@@ -208,54 +210,63 @@ class Agent:
             if tile.getType() == '~' and stone == 0:
                 return []
 
-            #Performance can be imporved by lazy copying map. TBD
-            myMap = map.copy()
-            tile = myMap.getTile(*tilepos)
+            if tile.getType() in 'koa~-T':
+                myMap = map.copy()
+                tile = myMap.getTile(*tilepos)
+                if tile.getType() == 'k':
+                    # print(stack)
+                    key = True
+                    tile.setType(' ')
+                if tile.getType() == 'o':
+                    stone += 1
+                    tile.setType(' ')
+                if tile.getType() == 'a':
+                    axe = True
+                    tile.setType(' ')
+                if tile.getType() == '~':
+                    stone -= 1
+                    tile.setType('O')
+                if tile.getType() == '-':
+                    tile.setType(' ')
+                if tile.getType() == 'T':
+                    tile.setType(' ')
+            else:
+                myMap = map
+                tile = map.getTile(*tilepos)
 
-            if tile.getType() == 'k':
-                key = True
-                tile.setType(' ')
-            if tile.getType() == 'o':
-                stone += 1
-                tile.setType(' ')
-            if tile.getType() == 'a':
-                axe = True
-                tile.setType(' ')
-            if tile.getType() == '~':
-                stone -= 1
-                tile.setType('O')
-            if tile.getType() == '-':
-                tile.setType(' ')
-            if tile.getType() == 'T':
-                tile.setType(' ')
-
-            nPath = self.findGold(stack+[((x, y-1), key, axe, stone)], myMap)
+            nPath = self.findGold(stack+[((x, y-1), key, axe, stone)], myMap, went)
             if nPath:
                 return nPath
-            ePath = self.findGold(stack+[((x+1, y), key, axe, stone)], myMap)
+            ePath = self.findGold(stack+[((x+1, y), key, axe, stone)], myMap, went)
             if ePath:
                 return ePath
 
-            sPath = self.findGold(stack+[((x, y+1), key, axe, stone)], myMap)
+            sPath = self.findGold(stack+[((x, y+1), key, axe, stone)], myMap, went)
             if sPath:
                 return sPath
 
-            wPath = self.findGold(stack+[((x-1, y), key, axe, stone)], myMap)
+            wPath = self.findGold(stack+[((x-1, y), key, axe, stone)], myMap, went)
             if wPath:
                 return wPath
-
         return []
 
     def expand(self):
         borderTiles = self.findBorderTiles()
-        borderPathes = self.findConsecutivePathes(borderTiles)
-        for path in borderPathes:
-            self.goAlong([x.pos() for x in path])
-        return len(borderPathes) != 0
+        if borderTiles:
+            borderPathes = self.findConsecutivePathes(borderTiles)
+            for path in borderPathes:
+                self.goAlong([x.pos() for x in path])
+        return len(borderTiles) != 0
 
     def findBorderTiles(self):
         x, y = self.map.myPos()
+
         walkable = [' ', 'O', 'k', 'a', 'o']
+        if self.hasKey:
+            walkable.append('-')
+        if self.hasAxe:
+            walkable.append('T')
+
         walked = [self.map.getTile(x, y)]
         stack = [self.map.getTile(x, y)]
         borderTile = []
@@ -329,42 +340,55 @@ class Agent:
         x1, y1 = self.map.myPos()
         x2, y2 = pos
         myDirection = self.map.getFacing()
+        targetTile = self.map.getTile(x2, y2)
         if abs(x2-x1)+abs(y2-y1) > 1:
             raise Exception
         elif abs(x2-x1)+abs(y2-y1) == 0:
             return
-        targetd = {(0,-1):0, (1,0):1, (0,1):2, (-1,0):3}
+        targetd = {( 0, -1): 0, #North
+                   ( 1,  0): 1, #East
+                   ( 0,  1): 2, #South
+                   (-1,  0): 3} #West
         targetDirection = targetd[(x2-x1, y2-y1)]
-        if myDirection >= 0:
-            sign = 1
-        else:
-            sign = -1
-        turn = (targetDirection - myDirection)%(4*sign)
-        if turn != 0:
-            if turn < 0:
-                leftright = 'l'
-                turn = -turn
-            else:
-                leftright = 'r'
-            command += leftright * turn
+        turn = targetDirection - myDirection
 
-        targetType = self.map.getTile(x2, y2).getType()
+
+        if abs(turn) == 2:
+            command += 'rr'
+        elif turn == 1 or turn == -3:
+            command += 'r'
+        elif turn == 3 or turn == -1:
+            command += 'l'
+
+        targetType = targetTile.getType()I
         if targetType == 'T':
             command += 'c'
+            targetTile.setType(' ')
         elif targetType == '-':
             command += 'u'
+            targetTile.setType(' ')
         elif targetType == '~':
             self.hasStone -= 1
+            targetTile.setType('O')
+        elif targetType == 'o':
+            self.hasStone += 1
+            targetTile.setType(' ')
+        elif targetType == 'a':
+            self.hasAxe = True
+        elif targetType == 'k':
+            self.hasKey = True
+
         command += 'f'
         for c in command:
+            print(self.map.myPos(), self.map.getFacing(), 'command: '+c)
+            print('key',self.hasKey,'axe',self.hasAxe,'stone', self.hasStone)
             if c == 'r':
-                self.map.setFacing((myDirection+1)%4)
+                self.map.setFacing(self.map.getFacing()+1)
             elif c == 'l':
-                self.map.setFacing((myDirection-1)%4)
+                self.map.setFacing(self.map.getFacing()-1)
             elif c == 'f':
                 self.map.setPos(x2, y2)
                 self.map.getTile(x2, y2).walked()
-            print('command: '+c)
             self.pipe.send(c)
 
 class Pipe:
@@ -400,22 +424,4 @@ class Pipe:
 if __name__ == '__main__':
     a = Agent(31415)
     a.start()
-    # m = Map()
-    # p = Pipe(31415, m)
-    # command = 'ffrrffrffffflffrff'
-    # for i in command:
-    #     if i == 'r':
-    #         facing = m.getFacing()
-    #         m.setFacing((facing+1))
-    #     elif i == 'l':
-    #         facing = m.getFacing()
-    #         m.setFacing((facing-1))
-    #     p.send(i)
 
-
-
-initMap = [['~', '~', 'k', '~', 'g'],
- [' ', '~', '~', '~', '-'],
- [' ', 'o', '^', 'T', ' '],
- [' ', ' ', ' ', '*', '*'],
- [' ', ' ', ' ', '-', 'a']]
