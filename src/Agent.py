@@ -1,6 +1,5 @@
-import socket, threading
+import socket
 from functools import reduce
-import time
 
 SIGHT = 5
 
@@ -122,6 +121,9 @@ class Map:
 
     def insertScope(self, scope):
         turnedMap = self.turnMapToNorth(scope)
+        print('-----------------')
+        [print('|'+''.join(line)+'|') for line in turnedMap]
+        print('-----------------')
         x, y = self.myPos()
         for i in range(SIGHT):
             for j in range(SIGHT):
@@ -129,12 +131,13 @@ class Map:
 
     def turnMapToNorth(self, scope):
         facing = self.facing
+        print(facing)
         for i in range(facing):
             scope = self.counterclockwiseRotate(scope)
         return scope
 
     def counterclockwiseRotate(self, map):
-        return tuple(zip(*map))
+        return tuple(zip(*map))[::-1]
 
     def setPos(self, x, y):
         self.x = x
@@ -157,11 +160,12 @@ class Agent:
 
 
     def start(self):
-        time.sleep(2)
         while(True):
             solutionPath = self.findGold((self.map.myPos(), False, False, 0), self.map)
             if solutionPath:
                 self.goAlong(solutionPath)
+                print('Victory')
+                break
             else:
                 hasExpand = self.expand()
                 if hasExpand:
@@ -301,12 +305,15 @@ class Agent:
 
     def goAlong(self, path):
         head = path[0]
+        # print(path)
         if head != (self.map.myPos()):
             leadingPath = self.findWay(self.map.myPos(), head)
+            print(leadingPath)
             if leadingPath:
-                path = leadingPath[:-1]+path
-
+                path = leadingPath[:-1] + path
+        # print(self.map.myPos(), path)
         for tile in path[1:]:
+            print(tile)
             self.step(tile)
 
     def step(self, pos):
@@ -314,9 +321,11 @@ class Agent:
         x1, y1 = self.map.myPos()
         x2, y2 = pos
         myDirection = self.map.getFacing()
-        # print(myDirection)
-        if abs(x2-x1)+abs(y2-y1) != 1:
+        if abs(x2-x1)+abs(y2-y1) > 1:
+            print(x2, x1, y2, y1)
             raise Exception
+        elif abs(x2-x1)+abs(y2-y1) == 0:
+            return
         targetd = {(0,-1):0, (1,0):1, (0,1):2, (-1,0):3}
         targetDirection = targetd[(x2-x1, y2-y1)]
         if myDirection >= 0:
@@ -331,7 +340,7 @@ class Agent:
             else:
                 leftright = 'r'
             command += leftright * turn
-            self.facing = targetDirection
+            self.map.setFacing(targetDirection)
 
         targetType = self.map.getTile(x2, y2).getType()
         if targetType == 'T':
@@ -342,23 +351,30 @@ class Agent:
             self.hasStone -= 1
         command += 'f'
 
-        self.pipe.send(command)
         self.map.setPos(x2, y2)
-        self.map.setFacing(targetDirection)
-        print(command)
+        for c in command:
+            self.pipe.send(c)
+            # print(c)
 
 class Pipe:
     def __init__(self, port, map):
         self.port = port
         self.conn = None
         self.map = map
-        t = threading.Thread(target=self.connection)
-        t.setDaemon(True)
-        t.start()
+
+        self.connection()
 
     def connection(self):
         self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.conn.connect(('127.0.0.1', self.port))
+        self.receiver()
+
+    def send(self, message):
+        m = str.encode(message)
+        self.conn.send(m)
+        self.receiver()
+
+    def receiver(self):
         d = b''
         while(True):
             d += self.conn.recv(1024)
@@ -367,14 +383,28 @@ class Pipe:
                 tmpdata = nodelist[:12] + ['^'] + nodelist[12:]
                 grid = [tmpdata[5*i:5*i+5] for i in range(5)]
                 self.map.insertScope(grid)
-                print(self.map.printMap())
-                d = b''
-
-    def send(self, message):
-        m = str.encode(message)
-        self.conn.send(m)
-
+                # print(self.map.printMap())
+                break
 
 if __name__ == '__main__':
-    a = Agent(31415)
-    a.start()
+    # a = Agent(31415)
+    # a.start()
+    m = Map()
+    p = Pipe(31415, m)
+    command = 'ffrrffrffffflffrff'
+    for i in command:
+        if i == 'r':
+            facing = m.getFacing()
+            m.setFacing((facing+1))
+        elif i == 'l':
+            facing = m.getFacing()
+            m.setFacing((facing-1))
+        p.send(i)
+
+
+
+initMap = [['~', '~', 'k', '~', 'g'],
+ [' ', '~', '~', '~', '-'],
+ [' ', 'o', '^', 'T', ' '],
+ [' ', ' ', ' ', '*', '*'],
+ [' ', ' ', ' ', '-', 'a']]
