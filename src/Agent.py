@@ -3,6 +3,7 @@ from functools import reduce
 
 SIGHT = 5
 
+
 class Tile:
     def __init__(self, x, y, type):
         self.__x = x
@@ -166,6 +167,12 @@ class Map:
     def hasGold(self):
         return self.hasgold
 
+    def goldPos(self):
+        return [x for x in self.ground if self.ground[x].getType() == 'g'][0]
+
+    def resourcePos(self):
+        return [x for x in self.ground if self.ground[x].getType() in 'kao']
+
 class Agent:
     SIGHT = 5
     def __init__(self, port):
@@ -174,7 +181,7 @@ class Agent:
         self.hasStone = 0
         self.hasAxe = False
         self.hasKey = False
-
+        self.commandCounter= 0
 
     def start(self):
         while(True):
@@ -184,15 +191,22 @@ class Agent:
                 if solutionPath:
                     self.goAlong([x[0] for x in solutionPath])
                     print('Victory')
+                    print('command counter: ',self.commandCounter)
                     break
+            print('no solution, expand')
+            hasExpand = self.expand()
+            if hasExpand:
+                while(self.expand()):
+                    if self.map.resourcePos():
+                        resources = self.map.resourcePos()
+                        for pos in resources:
+                            pathToResource = self.findWay(self.map.myPos(), pos)
+                            if pathToResource:
+                                self.goAlong(pathToResource)
+                        break
             else:
-                print('no solution, expand')
-                hasExpand = self.expand()
-                if hasExpand:
-                    self.expand()
-                else:
-                    print('No solution')
-                    break
+                print('No solution')
+                break
 
     def findGold(self, stack, went):
         if stack:
@@ -215,7 +229,7 @@ class Agent:
             if tile.getType() == '~' and stone == 0:
                 return []
 
-            if tile.getType() in 'koa~-T':
+            if tile.getType() in 'koa~':
                 myMap = map.copy()
                 tile = myMap.getTile(*tilepos)
                 if tile.getType() == 'k':
@@ -230,10 +244,10 @@ class Agent:
                 if tile.getType() == '~':
                     stone -= 1
                     tile.setType('O')
-                if tile.getType() == '-':
-                    tile.setType(' ')
-                if tile.getType() == 'T':
-                    tile.setType(' ')
+                # if tile.getType() == '-':
+                #     tile.setType(' ')
+                # if tile.getType() == 'T':
+                #     tile.setType(' ')
             else:
                 myMap = map
                 tile = map.getTile(*tilepos)
@@ -263,8 +277,7 @@ class Agent:
         borderTiles = self.findBorderTiles()
         if borderTiles:
             borderPathes = self.findConsecutivePathes(borderTiles)
-            for path in borderPathes:
-                self.goAlong([x.pos() for x in path])
+            self.goAlong([x.pos() for x in borderPathes])
         return len(borderTiles) != 0
 
     def findBorderTiles(self):
@@ -302,15 +315,27 @@ class Agent:
         return borderTile
 
     def findConsecutivePathes(self, tiles):
-        pathes = [[tiles[0]]]
-        for i in range(1,len(tiles)):
-            pos1 = tiles[i].pos()
-            pos2 = tiles[i-1].pos()
-            distance = abs(pos1[0]-pos2[0]) + abs(pos1[1]-pos2[1])
-            if distance != 1:
-                pathes.append([])
-            pathes[-1].append(tiles[i])
-        return pathes
+        pathes = [[x] for x in tiles]
+        while(True):
+            flag = False
+            for i in range(len(pathes)):
+                for j in range(len(pathes)):
+                    if i == j:
+                        continue
+                    x1, y1 = pathes[i][-1].pos()
+                    x2, y2 = pathes[j][0].pos()
+                    if abs(x1-x2) + abs(y1-y2) == 1:
+                        pathes[i] += pathes[j]
+                        pathes = pathes[:j] + pathes[j+1:]
+                        flag = True
+                        break
+                if flag:
+                    break
+            if flag:
+                continue
+            break
+
+        return [path for path in pathes if len(path) == max([len(path) for path in pathes])][0]
 
     #WFS to find shorttest way
     def findWay(self, originpos, targetpos):
@@ -403,6 +428,7 @@ class Agent:
             elif c == 'f':
                 self.map.setPos(x2, y2)
                 self.map.getTile(x2, y2).walked()
+            self.commandCounter += 1
             self.pipe.send(c)
 
 class Pipe:
@@ -432,10 +458,12 @@ class Pipe:
                 tmpdata = nodelist[:12] + ['^'] + nodelist[12:]
                 grid = [tmpdata[5*i:5*i+5] for i in range(5)]
                 self.map.insertScope(grid)
-                # print(self.map.printMap())
+                print(self.map.printMap())
                 break
 
 if __name__ == '__main__':
-    a = Agent(31415)
-    a.start()
-
+    try:
+        a = Agent(31415)
+        a.start()
+    except:
+        print(a.commandCounter)
