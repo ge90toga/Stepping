@@ -60,6 +60,7 @@ class Map:
         self.y = 0
         self.facing = 0
         self.lock = False
+        self.hasgold = False
 
     def addTile(self, x, y, type):
         if (x, y) not in self.ground:
@@ -88,6 +89,9 @@ class Map:
         if type == '^':
             tile.walked()
             tile.setType(' ')
+
+        if type == 'g':
+            self.hasgold = True
 
     def getTile(self, x, y):
         if (x, y) in self.ground:
@@ -159,6 +163,9 @@ class Map:
     def getFacing(self):
         return self.facing
 
+    def hasGold(self):
+        return self.hasgold
+
 class Agent:
     SIGHT = 5
     def __init__(self, port):
@@ -172,11 +179,12 @@ class Agent:
     def start(self):
         while(True):
             print('looking for solution...')
-            solutionPath = self.findGold([(self.map.myPos(), self.hasKey, self.hasAxe, self.hasStone)], self.map, set())
-            if solutionPath:
-                self.goAlong([x[0] for x in solutionPath])
-                print('Victory')
-                break
+            if self.map.hasGold():
+                solutionPath = self.findGold([(self.map.myPos(), self.hasKey, self.hasAxe, self.hasStone, self.map)], set())
+                if solutionPath:
+                    self.goAlong([x[0] for x in solutionPath])
+                    print('Victory')
+                    break
             else:
                 print('no solution, expand')
                 hasExpand = self.expand()
@@ -186,14 +194,11 @@ class Agent:
                     print('No solution')
                     break
 
-    def findGold(self, stack, map, went):
+    def findGold(self, stack, went):
         if stack:
-            if stack[-1] in went:
-                return []
-            went.add(stack[-1])
-            tilepos, key, axe, stone = stack[-1]
-            x, y = tilepos
+            tilepos, key, axe, stone, map = stack[-1]
 
+            x, y = tilepos
             if tilepos not in self.map.ground:
                 return []
 
@@ -214,7 +219,6 @@ class Agent:
                 myMap = map.copy()
                 tile = myMap.getTile(*tilepos)
                 if tile.getType() == 'k':
-                    # print(stack)
                     key = True
                     tile.setType(' ')
                 if tile.getType() == 'o':
@@ -234,18 +238,23 @@ class Agent:
                 myMap = map
                 tile = map.getTile(*tilepos)
 
-            nPath = self.findGold(stack+[((x, y-1), key, axe, stone)], myMap, went)
+
+            if stack[-1] in went:
+                return []
+            went.add(stack[-1])
+
+            nPath = self.findGold(stack+[((x, y-1), key, axe, stone, myMap)], went)
             if nPath:
                 return nPath
-            ePath = self.findGold(stack+[((x+1, y), key, axe, stone)], myMap, went)
+            ePath = self.findGold(stack+[((x+1, y), key, axe, stone, myMap)], went)
             if ePath:
                 return ePath
 
-            sPath = self.findGold(stack+[((x, y+1), key, axe, stone)], myMap, went)
+            sPath = self.findGold(stack+[((x, y+1), key, axe, stone, myMap)], went)
             if sPath:
                 return sPath
 
-            wPath = self.findGold(stack+[((x-1, y), key, axe, stone)], myMap, went)
+            wPath = self.findGold(stack+[((x-1, y), key, axe, stone, myMap)], went)
             if wPath:
                 return wPath
         return []
@@ -303,8 +312,13 @@ class Agent:
             pathes[-1].append(tiles[i])
         return pathes
 
+    #WFS to find shorttest way
     def findWay(self, originpos, targetpos):
         walkable = [' ', 'O', 'k', 'a', 'o']
+        if self.hasKey:
+            walkable.append('-')
+        if self.hasAxe:
+            walkable.append('T')
         queue = [[originpos]]
         walked = []
         while(queue):
@@ -360,7 +374,7 @@ class Agent:
         elif turn == 3 or turn == -1:
             command += 'l'
 
-        targetType = targetTile.getType()I
+        targetType = targetTile.getType()
         if targetType == 'T':
             command += 'c'
             targetTile.setType(' ')
@@ -418,7 +432,7 @@ class Pipe:
                 tmpdata = nodelist[:12] + ['^'] + nodelist[12:]
                 grid = [tmpdata[5*i:5*i+5] for i in range(5)]
                 self.map.insertScope(grid)
-                print(self.map.printMap())
+                # print(self.map.printMap())
                 break
 
 if __name__ == '__main__':
