@@ -12,29 +12,8 @@ class Tile:
         self.__beenHere = False
         self.map = map
 
-    def pos(self):
-        return (self.__x, self.__y)
-
-    def getNorth(self):
-        return self.map.ground[(self.__x, self.__y - 1)]
-
-    def getEast(self):
-        return self.map.ground[(self.__x + 1, self.__y)]
-
-    def getWest(self):
-        return self.map.ground[(self.__x - 1, self.__y)]
-
-    def getSouth(self):
-        return self.map.ground[(self.__x, self.__y + 1)]
-
     def getType(self):
         return self.__type
-
-    def beenHere(self):
-        return self.__beenHere
-
-    def walked(self):
-        self.__beenHere = True
 
     def setType(self, type):
         self.__type = type
@@ -45,7 +24,6 @@ class Map:
         self.x = 0
         self.y = 0
         self.facing = 0
-        self.lock = False
         self.hasgold = False
         self.wentTile = {(0,0)}
 
@@ -80,15 +58,16 @@ class Map:
             self.ground[(x,y+1)] = Tile(x,y+1, 'N', self)
 
         if type == '^':
-            tile.walked()
+            # tile.walked()
+            self.wentTile.add((x, y))
             tile.setType(' ')
 
         if type == 'g':
             self.hasgold = True
 
-    def getTile(self, x, y):
-        if (x, y) in self.ground:
-            return self.ground[(x, y)]
+    def getTile(self, pos):
+        if pos in self.ground:
+            return self.ground[pos]
         else:
             return None
 
@@ -99,9 +78,6 @@ class Map:
             type = self.ground[tile].getType()
             newMap.addTile(x, y, type)
         return newMap
-
-    def findTile(self, type):
-        return [x.pos for x in self.ground if x.getType == type]
 
     def printMap(self):
         xlist, ylist = zip(*[x for x in self.ground])
@@ -146,10 +122,10 @@ class Map:
     def clockwiseRotate(self, map):
         return tuple(zip(*map))[::-1]
 
-    def setPos(self, x, y):
-        self.x = x
-        self.y = y
-        self.wentTile.add((x,y))
+    def setPos(self, pos):
+        self.x = pos[0]
+        self.y = pos[1]
+        self.wentTile.add(pos)
 
     def setFacing(self, facing):
         self.facing = facing%4
@@ -172,7 +148,8 @@ class Map:
     def stonesOnGround(self):
         return len([x for x in self.ground if self.ground[x].getType() == 'o'])
 
-    def surrondingType(self, x, y):
+    def surrondingType(self, pos):
+        x, y = pos
         ret = set()
         for i in range(x-SIGHT//2, x+SIGHT//2 +1):
             for j in range(y-SIGHT//2, y+SIGHT//2 +1):
@@ -194,6 +171,15 @@ class Map:
 
     def west(self, pos):
         return (pos[0] - 1, pos[1])
+
+    def setType(self, pos, type):
+        self[pos].setType(type)
+
+    def getType(self, pos):
+        return self.ground[pos].getType()
+
+    def distance(self, pos1, pos2):
+        return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
 
 class Agent:
     SIGHT = 5
@@ -251,28 +237,25 @@ class Agent:
             if stone:
                 walkable.add('~')
 
-
-            tile = map.getTile(*tilepos)
-            tileType = tile.getType()
+            tileType = map.getType(tilepos)
 
             if tileType not in walkable:
                 continue
 
             if tileType in 'koa~':
                 myMap = map.copy()
-                tile = myMap.getTile(*tilepos)
                 if tileType == 'k':
                     key = True
-                    tile.setType(' ')
+                    myMap.setType(tilepos, ' ')
                 if tileType == 'o':
                     stone += 1
-                    tile.setType(' ')
+                    myMap.setType(tilepos, ' ')
                 if tileType == 'a':
                     axe = True
-                    tile.setType(' ')
+                    myMap.setType(tilepos, ' ')
                 if tileType == '~':
                     stone -= 1
-                    tile.setType('O')
+                    myMap.setType(tilepos, 'O')
             else:
                 myMap = map
 
@@ -280,11 +263,10 @@ class Agent:
                 continue
             went.add((tilepos, key, axe, stone, myMap))
 
-            x, y = tilepos
-            stack.append((path+[(x, y-1)], key, axe, stone, myMap))
-            stack.append((path+[(x+1, y)], key, axe, stone, myMap))
-            stack.append((path+[(x, y+1)], key, axe, stone, myMap))
-            stack.append((path+[(x-1, y)], key, axe, stone, myMap))
+            stack.append((path+[myMap.north(tilepos)], key, axe, stone, myMap))
+            stack.append((path+[myMap.east(tilepos)], key, axe, stone, myMap))
+            stack.append((path+[myMap.south(tilepos)], key, axe, stone, myMap))
+            stack.append((path+[myMap.west(tilepos)], key, axe, stone, myMap))
         return []
 
     def mapProcess(self, map, key, axe, stone):
@@ -302,59 +284,59 @@ class Agent:
         stack = [(originPos)]
         area = set()
         while(stack):
-            x, y = stack.pop()
-            if myMap.getTile(x, y).getType() not in walkable:
+            pos = stack.pop()
+            if myMap[pos] not in walkable:
                 continue
-            if (x, y) in area:
+            if pos in area:
                 continue
 
-            area.add((x,y))
-            stack.append((x+1, y))
-            stack.append((x-1, y))
-            stack.append((x, y+1))
-            stack.append((x, y-1))
+            area.add(pos)
+            stack.append((myMap.north(pos)))
+            stack.append((myMap.east(pos)))
+            stack.append((myMap.south(pos)))
+            stack.append((myMap.west(pos)))
 
         walkable.add('~')
         s = set()
-        for x, y in resource:
-            stack = [(x,y, stone)]
+        for resPos in resource:
+            stack = [(resPos, stone)]
             walked = set()
             while(stack):
-                x0, y0, tmpstone = stack.pop()
-                if (x0, y0) in walked:
+                pos , tmpstone = stack.pop()
+                if pos in walked:
                     continue
 
-                tileType = myMap.getTile(x0, y0).getType()
+                tileType = myMap[pos].getType()
                 if tileType not in walkable:
                     continue
-                walked.add((x0,y0))
+                walked.add(pos)
                 if tileType == '~':
-                    s.add((x0, y0))
+                    s.add(pos)
                     if tmpstone == 1:
                         continue
                     else:
                         tmpstone -= 1
-                if (x0, y0) in area:
+                if pos in area:
                     break
-                stack.append((x0, y0-1, tmpstone))
-                stack.append((x0, y0+1, tmpstone))
-                stack.append((x0-1, y0, tmpstone))
-                stack.append((x0+1, y0, tmpstone))
+                stack.append((myMap.north(pos), tmpstone))
+                stack.append((myMap.east(pos), tmpstone))
+                stack.append((myMap.south(pos), tmpstone))
+                stack.append((myMap.west(pos), tmpstone))
 
-        for x, y in myMap.ground:
-            if myMap.getTile(x, y).getType() == '~' and (x, y) not in s:
-                myMap.getTile(x, y).setType('*')
+        for pos in myMap.ground:
+            if myMap[pos].getType() == '~' and pos not in s:
+                myMap.setType(pos, '*')
         return myMap
 
     def expand(self):
         borderTiles = self.findBorderTiles()
         if borderTiles:
             borderPathes = self.findConsecutivePathes(borderTiles)
-            self.goAlong([x.pos() for x in borderPathes])
+            self.goAlong([x for x in borderPathes])
         return len(borderTiles) != 0
 
     def findBorderTiles(self):
-        x, y = self.map.myPos()
+        pos = self.map.myPos()
 
         walkable = {' ', 'O', 'k', 'a', 'o'}
         if self.hasKey:
@@ -362,21 +344,22 @@ class Agent:
         if self.hasAxe:
             walkable.add('T')
 
-        walked = [self.map.getTile(x, y)]
-        stack = [self.map.getTile(x, y)]
+        walked = [pos]
+        stack = [pos]
+
         borderTile = []
         while(stack):
-            tile = stack.pop()
-            walked.append(tile)
-            if tile.getType() not in walkable:
+            pos = stack.pop()
+            walked.append(pos)
+            if self.map.getType(pos) not in walkable:
                 continue
-            north = tile.getNorth()
-            west = tile.getWest()
-            south = tile.getSouth()
-            east = tile.getEast()
+            north = self.map.north(pos)
+            west = self.map.west(pos)
+            south = self.map.south(pos)
+            east = self.map.east(pos)
 
-            if 'N' in self.map.surrondingType(*tile.pos()):
-                borderTile.append(tile)
+            if 'N' in self.map.surrondingType(pos):
+                borderTile.append(pos)
 
             if north not in walked:
                 stack.append(north)
@@ -396,9 +379,9 @@ class Agent:
                 for j in range(len(pathes)):
                     if i == j:
                         continue
-                    x1, y1 = pathes[i][-1].pos()
-                    x2, y2 = pathes[j][0].pos()
-                    if abs(x1-x2) + abs(y1-y2) == 1:
+                    pos1 = pathes[i][-1]
+                    pos2 = pathes[j][0]
+                    if self.map.distance(pos1, pos2) == 1:
                         pathes[i] += pathes[j]
                         pathes = pathes[:j] + pathes[j+1:]
                         flag = True
@@ -423,19 +406,20 @@ class Agent:
 
     def step(self, pos):
         command = ''
-        x1, y1 = self.map.myPos()
-        x2, y2 = pos
+        myPos = self.map.myPos()
+        targetPos = pos
+        d = self.map.distance(myPos,targetPos)
         myDirection = self.map.getFacing()
-        targetTile = self.map.getTile(x2, y2)
-        if abs(x2-x1)+abs(y2-y1) > 1:
+
+        if d > 1:
             raise Exception
-        elif abs(x2-x1)+abs(y2-y1) == 0:
+        elif d == 0:
             return
         targetd = {( 0, -1): 0, #North
                    ( 1,  0): 1, #East
                    ( 0,  1): 2, #South
                    (-1,  0): 3} #West
-        targetDirection = targetd[(x2-x1, y2-y1)]
+        targetDirection = targetd[(targetPos[0]-myPos[0], targetPos[1]-myPos[1])]
         turn = targetDirection - myDirection
 
 
@@ -446,19 +430,19 @@ class Agent:
         elif turn == 3 or turn == -1:
             command += 'l'
 
-        targetType = targetTile.getType()
+        targetType = self.map.getType(targetPos)
         if targetType == 'T':
             command += 'c'
-            targetTile.setType(' ')
+            self.map.setType(targetPos, ' ')
         elif targetType == '-':
             command += 'u'
-            targetTile.setType(' ')
+            self.map.setType(targetPos, ' ')
         elif targetType == '~':
             self.hasStone -= 1
-            targetTile.setType('O')
+            self.map.setType(targetPos, 'O')
         elif targetType == 'o':
             self.hasStone += 1
-            targetTile.setType(' ')
+            self.map.setType(targetPos, ' ')
         elif targetType == 'a':
             self.hasAxe = True
         elif targetType == 'k':
@@ -473,8 +457,7 @@ class Agent:
             elif c == 'l':
                 self.map.setFacing(self.map.getFacing()-1)
             elif c == 'f':
-                self.map.setPos(x2, y2)
-                self.map.getTile(x2, y2).walked()
+                self.map.setPos(targetPos)
             self.commandCounter += 1
             self.pipe.send(c)
 
