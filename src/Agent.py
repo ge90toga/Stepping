@@ -49,6 +49,16 @@ class Map:
         self.hasgold = False
         self.wentTile = {(0,0)}
 
+    def __getitem__(self, item):
+        return self.ground[item]
+
+    def __setitem__(self, key, value):
+        if key in self:
+            self.ground[key] = value
+
+    def __contains__(self, item):
+        return item in self.ground
+
     def addTile(self, x, y, type):
         if (x, y) not in self.ground:
             tile = Tile(x, y, type, self)
@@ -172,6 +182,18 @@ class Map:
 
     def beenHere(self, x, y):
         return (x, y) in self.wentTile
+
+    def north(self, pos):
+        return (pos[0], pos[1] - 1)
+
+    def east(self, pos):
+        return (pos[0] + 1, pos[1])
+
+    def south(self, pos):
+        return (pos[0], pos[1]+1)
+
+    def west(self, pos):
+        return (pos[0] - 1, pos[1])
 
 class Agent:
     SIGHT = 5
@@ -352,9 +374,7 @@ class Agent:
             west = tile.getWest()
             south = tile.getSouth()
             east = tile.getEast()
-            # if any([x.getType() not in walkable for x in [north, west, south, east]]) and not self.map.beenHere(*tile.pos()):
-            #     borderTile.append(tile)
-            # print(self.map.surrondingType(*tile.pos()))
+
             if 'N' in self.map.surrondingType(*tile.pos()):
                 borderTile.append(tile)
 
