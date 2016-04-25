@@ -185,9 +185,9 @@ class Agent:
 
     def start(self):
         while(True):
-            print('looking for solution...')
             if self.map.hasGold():
-                solutionPath = self.findGold()
+                print('looking for solution...')
+                solutionPath = self.findWay(self.map.myPos(), self.map.goldPos(), self.hasKey, self.hasAxe, self.hasStone)
                 if solutionPath:
                     self.goAlong([x for x in solutionPath])
                     print('Victory')
@@ -199,7 +199,7 @@ class Agent:
                 while(self.expand()):
                     resources = self.map.resourcePos()
                     for pos in resources:
-                        pathToResource = self.findWay(self.map.myPos(), pos)
+                        pathToResource = self.findWay(self.map.myPos(), pos, self.hasKey, self.hasAxe, 0)
                         if pathToResource:
                             self.goAlong(pathToResource)
                     if resources:
@@ -208,45 +208,47 @@ class Agent:
                 print('No solution')
                 break
 
-    def findGold(self):
-        map = self.mapProcess(self.map)
+    def findWay(self, originPos, targetPos, key, axe, stone):
+        map = self.mapProcess(self.map, key, axe, stone)
         print('processed map')
         print(map.printMap())
-        stack = [([self.map.myPos()], self.hasKey, self.hasAxe, self.hasStone, map)]
+        stack = [([originPos], key, axe, stone, map)]
         went = set()
         while(stack):
             path, key, axe, stone, map = stack[0]
             stack = stack[1:]
             tilepos = path[-1]
+            if tilepos == targetPos:
+                return path
 
-            if tilepos not in map.ground:
-                continue
+            walkable = {' ', 'O', 'k', 'a', 'o'}
+            if key:
+                walkable.add('-')
+            if axe:
+                walkable.add('T')
+            if stone:
+                walkable.add('~')
+
 
             tile = map.getTile(*tilepos)
+            tileType = tile.getType()
 
-            if tile.getType() in '*N.':
-                continue
-            elif tile.getType() == 'g':
-                return path
-            elif tile.getType() == 'T' and not axe:
-                continue
-            elif tile.getType() == '-' and not key:
-                continue
-            elif tile.getType() == '~' and stone == 0:
+            if tileType not in walkable:
                 continue
 
-            if tile.getType() in 'koa~':
+            if tileType in 'koa~':
                 myMap = map.copy()
                 tile = myMap.getTile(*tilepos)
-                if tile.getType() == 'k':
+                if tileType == 'k':
                     key = True
-                if tile.getType() == 'o':
+                    tile.setType(' ')
+                if tileType == 'o':
                     stone += 1
                     tile.setType(' ')
-                if tile.getType() == 'a':
+                if tileType == 'a':
                     axe = True
                     tile.setType(' ')
-                if tile.getType() == '~':
+                if tileType == '~':
                     stone -= 1
                     tile.setType('O')
             else:
@@ -263,20 +265,63 @@ class Agent:
             stack.append((path+[(x-1, y)], key, axe, stone, myMap))
         return []
 
-    def mapProcess(self, map):
-        return map
+    def mapProcess(self, map, key, axe, stone):
         myMap = map.copy()
-        x1, y1 = myMap.goldPos()
-        stone = self.hasStone + myMap.stonesOnGround()
-        resource = map.resourcePos()
-        s = {(x1, y1)}
+        resource = myMap.resourcePos()
+        if map.hasGold():
+            resource.append(map.goldPos())
+        walkable = {'g', 'k', 'a', 'o', ' '}
+        if key:
+            walkable.add('-')
+        if axe:
+            walkable.add('T')
+        stone += self.map.stonesOnGround()
+        originPos = map.myPos()
+        stack = [(originPos)]
+        area = set()
+        while(stack):
+            x, y = stack.pop()
+            if myMap.getTile(x, y).getType() not in walkable:
+                continue
+            if (x, y) in area:
+                continue
+
+            area.add((x,y))
+            stack.append((x+1, y))
+            stack.append((x-1, y))
+            stack.append((x, y+1))
+            stack.append((x, y-1))
+
+        walkable.add('~')
+        s = set()
         for x, y in resource:
-            for i in range(x-stone, x+stone+1):
-                for j in range(x-stone, x+stone+1):
-                    s.add((i,j))
-        for x2, y2 in myMap.ground:
-            if myMap.getTile(x2, y2).getType() == '~' and (x2, y2) not in s:
-                myMap.getTile(x2, y2).setType('*')
+            stack = [(x,y, stone)]
+            walked = set()
+            while(stack):
+                x0, y0, tmpstone = stack.pop()
+                if (x0, y0) in walked:
+                    continue
+
+                tileType = myMap.getTile(x0, y0).getType()
+                if tileType not in walkable:
+                    continue
+                walked.add((x0,y0))
+                if tileType == '~':
+                    s.add((x0, y0))
+                    if tmpstone == 1:
+                        continue
+                    else:
+                        tmpstone -= 1
+                if (x0, y0) in area:
+                    break
+                stack.append((x0, y0-1, tmpstone))
+                stack.append((x0, y0+1, tmpstone))
+                stack.append((x0-1, y0, tmpstone))
+                stack.append((x0+1, y0, tmpstone))
+
+        for x, y in myMap.ground:
+            if myMap.getTile(x, y).getType() == '~' and (x, y) not in s:
+                myMap.getTile(x, y).setType('*')
         return myMap
 
     def expand(self):
@@ -343,39 +388,12 @@ class Agent:
             if flag:
                 continue
             break
-
         return [path for path in pathes if len(path) == max([len(path) for path in pathes])][0]
-
-    #WFS to find shorttest way
-    def findWay(self, originpos, targetpos):
-        walkable = {' ', 'O', 'k', 'a', 'o'}
-        if self.hasKey:
-            walkable.add('-')
-        if self.hasAxe:
-            walkable.add('T')
-        queue = [[originpos]]
-        walked = []
-        while(queue):
-            path = queue[0]
-            queue = queue[1:]
-            tile = self.map.getTile(*path[-1])
-            if tile.getType() not in walkable:
-                continue
-            elif tile.pos() in walked:
-                continue
-            elif tile.pos() == targetpos:
-                return path
-            walked.append(tile.pos())
-            queue.append(path+[tile.getNorth().pos()])
-            queue.append(path+[tile.getEast().pos()])
-            queue.append(path+[tile.getSouth().pos()])
-            queue.append(path+[tile.getWest().pos()])
-        return []
 
     def goAlong(self, path):
         head = path[0]
         if head != (self.map.myPos()):
-            leadingPath = self.findWay(self.map.myPos(), head)
+            leadingPath = self.findWay(self.map.myPos(), head, self.hasKey, self.hasAxe, 0)
             if leadingPath:
                 path = leadingPath[:-1] + path
         print('Go along path:')
