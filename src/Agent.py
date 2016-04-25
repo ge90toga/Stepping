@@ -1,13 +1,17 @@
-import socket
+import socket, time, argparse
 from functools import reduce
 
 SIGHT = 5
+NORTH = 0
+EAST  = 1
+SOUTH = 2
+WEST  = 3
 
 class Map:
     def __init__(self):
         self.ground = dict()
-        self.facing = 0
-        self.hasgold = False
+        self.facing = NORTH
+        self.goldpos = None
         self.pos = (0, 0)
 
     def __getitem__(self, item):
@@ -46,10 +50,7 @@ class Map:
             self.setType(pos, ' ')
 
         if type == 'g':
-            self.hasgold = True
-
-    def getTile(self, pos):
-        return self[pos]
+            self.goldpos = pos
 
     def copy(self):
         newMap = Map()
@@ -57,22 +58,21 @@ class Map:
         return newMap
 
     def printMap(self):
-        xlist, ylist = zip(*[x for x in self.ground])
+        xlist, ylist = zip(*self)
         xmin,xmax,ymin,ymax = min(xlist), max(xlist), min(ylist), max(ylist)
-
-        ret = [[str(x%10) for x in range(xmin-1, xmax+1)]]
+        ret = ''.join([str(x%10) for x in range(xmin-1, xmax+1)])
         for i in range(ymin, ymax+1):
-            ret.append([str(i%10)])
+            ret += '\n'+str(i%10)
             for j in range(xmin, xmax+1):
-                if (j, i) in self.ground:
+                if (j, i) in self:
                     if self.myPos() == (j, i):
                         direction = {0:'^', 1:'>', 2:'v', 3:'<'}
-                        ret[-1].append(direction[self.getFacing()])
+                        ret += direction[self.getFacing()]
                     else:
-                        ret[-1].append(self.ground[(j,i)])
+                        ret += self[(j,i)]
                 else:
-                    ret[-1].append('?')
-        return reduce(lambda x, y:'{}\n{}'.format(x, y), [''.join(x) for x in ret])
+                    ret += '?'
+        return ret
 
     def myPos(self):
         return self.pos
@@ -108,10 +108,10 @@ class Map:
         return self.facing
 
     def hasGold(self):
-        return self.hasgold
+        return self.goldpos != None
 
     def goldPos(self):
-        return [x for x in self.ground if self.ground[x] == 'g'][0]
+        return self.goldpos
 
     def resourcePos(self):
         return [x for x in self if self[x] in 'kao']
@@ -146,6 +146,13 @@ class Map:
     def distance(pos1, pos2):
         return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
 
+    def directionDiff(originPos, targetPos, facing):
+        targetd = {( 0, -1): NORTH,
+                   ( 1,  0): EAST,
+                   ( 0,  1): SOUTH,
+                   (-1,  0): WEST}
+        return targetd[(targetPos[0]-originPos[0], targetPos[1]-originPos[1])] - facing
+
 class Agent:
     SIGHT = 5
     def __init__(self, port):
@@ -178,10 +185,10 @@ class Agent:
 
     def collectResource(self):
         resources = self.map.resourcePos()
-        for pos in resources:
-            pathToResource = self.findWay(self.map.myPos(), pos, self.hasKey, self.hasAxe, 0)
-            if pathToResource:
-                self.goAlong(pathToResource)
+        if resources:
+            pathes = self.findConsecutivePathes(resources)
+            for path in pathes:
+                self.goAlong(path)
         return len(resources) != 0
 
     def findWay(self, originPos, targetPos, key, axe, stone):
@@ -303,7 +310,7 @@ class Agent:
     def expand(self):
         borderTiles = self.findBorderTiles()
         if borderTiles:
-            borderPathes = self.findConsecutivePathes(borderTiles)
+            borderPathes = self.findConsecutivePathes(borderTiles)[0]
             self.goAlong([x for x in borderPathes])
         return len(borderTiles) != 0
 
@@ -316,31 +323,24 @@ class Agent:
         if self.hasAxe:
             walkable.add('T')
 
-        walked = [pos]
+        walked = set()
         stack = [pos]
 
         borderTile = []
         while(stack):
             pos = stack.pop()
-            walked.append(pos)
+
+            if pos in walked:
+                continue
+            walked.add(pos)
             if self.map[pos] not in walkable:
                 continue
-            north = Map.north(pos)
-            west = Map.west(pos)
-            south = Map.south(pos)
-            east = Map.east(pos)
-
             if 'N' in self.map.surrondingType(pos):
                 borderTile.append(pos)
-
-            if north not in walked:
-                stack.append(north)
-            if west not in walked:
-                stack.append(west)
-            if south not in walked:
-                stack.append(south)
-            if east not in walked:
-                stack.append(east)
+            stack.append(Map.north(pos))
+            stack.append(Map.west(pos))
+            stack.append(Map.south(pos))
+            stack.append(Map.east(pos))
         return borderTile
 
     def findConsecutivePathes(self, tiles):
@@ -351,11 +351,14 @@ class Agent:
                 for j in range(len(pathes)):
                     if i == j:
                         continue
-                    pos1 = pathes[i][-1]
-                    pos2 = pathes[j][0]
-                    if Map.distance(pos1, pos2) == 1:
+                    elif Map.distance(pathes[i][-1], pathes[j][0]) == 1:
                         pathes[i] += pathes[j]
                         pathes = pathes[:j] + pathes[j+1:]
+                        flag = True
+                        break
+                    elif Map.distance(pathes[j][-1], pathes[i][0]) == 1:
+                        pathes[j] += pathes[i]
+                        pathes = pathes[:i] + pathes[i+1:]
                         flag = True
                         break
                 if flag:
@@ -363,34 +366,26 @@ class Agent:
             if flag:
                 continue
             break
-        return [path for path in pathes if len(path) == max([len(path) for path in pathes])][0]
+        return [path for path in pathes if len(path) == max([len(path) for path in pathes])]
 
     def goAlong(self, path):
         head = path[0]
-        if head != (self.map.myPos()):
+        if head != self.map.myPos():
             leadingPath = self.findWay(self.map.myPos(), head, self.hasKey, self.hasAxe, 0)
             if leadingPath:
                 path = leadingPath[:-1] + path
-        for tile in path[1:]:
-            self.step(tile)
+        if path[0] == self.map.myPos():
+            for tile in path[1:]:
+                self.step(tile)
 
-    def step(self, pos):
+    def step(self, targetPos):
         command = ''
         myPos = self.map.myPos()
-        targetPos = pos
-        d = Map.distance(myPos,targetPos)
-        myDirection = self.map.getFacing()
 
-        if d > 1:
+        if Map.distance(myPos,targetPos) != 1:
             raise Exception
-        elif d == 0:
-            return
-        targetd = {( 0, -1): 0, #North
-                   ( 1,  0): 1, #East
-                   ( 0,  1): 2, #South
-                   (-1,  0): 3} #West
 
-        turn = targetd[(targetPos[0]-myPos[0], targetPos[1]-myPos[1])] - myDirection
+        turn = Map.directionDiff(myPos, targetPos, self.map.getFacing())
 
         if abs(turn) == 2:
             command += 'rr'
@@ -425,6 +420,7 @@ class Agent:
                 self.map.setPos(targetPos)
             self.commandCounter += 1
             self.pipe.send(c)
+            print(self.map.printMap())
 
 class Pipe:
     def __init__(self, port, map):
@@ -455,5 +451,11 @@ class Pipe:
                 break
 
 if __name__ == '__main__':
-    a = Agent(31415)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-p', type=int, help='port number of server')
+    args = parser.parse_args()
+    beginTime = time.time()
+    a = Agent(args.p)
     a.start()
+    endTime = time.time()
+    print('running time(s):', endTime - beginTime)
